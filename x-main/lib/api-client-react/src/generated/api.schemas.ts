@@ -204,18 +204,42 @@ export interface AppJsonResult {
   raw: AppJsonResultRaw;
 }
 
+/**
+ * Optional hint only; the server always charges the template's own currency. NGN is paid in kobo via card, bank transfer or USSD; KES in cents via card (M-Pesa has its own stk-push endpoint).
+
+ */
+export type PaymentInitiateInputCurrency = typeof PaymentInitiateInputCurrency[keyof typeof PaymentInitiateInputCurrency];
+
+
+export const PaymentInitiateInputCurrency = {
+  NGN: 'NGN',
+  KES: 'KES',
+} as const;
+
 export interface PaymentInitiateInput {
-  email: string;
-  amount: number;
-  planType: string;
-  currency?: string;
+  templateId: number;
+  /** Optional hint only; the server always charges the template's own currency. NGN is paid in kobo via card, bank transfer or USSD; KES in cents via card (M-Pesa has its own stk-push endpoint).
+   */
+  currency?: PaymentInitiateInputCurrency;
   callbackUrl?: string;
 }
+
+export type PaymentInitiateResponseCurrency = typeof PaymentInitiateResponseCurrency[keyof typeof PaymentInitiateResponseCurrency];
+
+
+export const PaymentInitiateResponseCurrency = {
+  NGN: 'NGN',
+  KES: 'KES',
+} as const;
 
 export interface PaymentInitiateResponse {
   authorizationUrl: string;
   reference: string;
   accessCode: string;
+  amount?: number;
+  currency?: PaymentInitiateResponseCurrency;
+  channels?: string[];
+  templateName?: string;
 }
 
 export interface StkPushInput {
@@ -231,16 +255,59 @@ export interface MpesaPushResult {
   message?: string;
 }
 
+export type PaymentVerifyResponseCurrency = typeof PaymentVerifyResponseCurrency[keyof typeof PaymentVerifyResponseCurrency];
+
+
+export const PaymentVerifyResponseCurrency = {
+  NGN: 'NGN',
+  KES: 'KES',
+} as const;
+
 export interface PaymentVerifyResponse {
   status: string;
   reference: string;
   amount?: number;
+  currency?: PaymentVerifyResponseCurrency;
+  /**
+     * Paystack charge channel (card, bank_transfer, ussd, mpesa, ...)
+     * @nullable
+     */
+  channel?: string | null;
   email?: string;
   /** @nullable */
   paidAt?: string | null;
+  unlocked?: boolean;
 }
 
 export type ListTemplatesParams = {
 category?: string;
 search?: string;
 };
+
+export type UpdateAdminUserRoleBodyRole = typeof UpdateAdminUserRoleBodyRole[keyof typeof UpdateAdminUserRoleBodyRole];
+
+
+export const UpdateAdminUserRoleBodyRole = {
+  user: 'user',
+  admin: 'admin',
+} as const;
+
+export type UpdateAdminUserRoleBody = {
+  role: UpdateAdminUserRoleBodyRole;
+};
+
+export type UpdateAdminUserRole200Role = typeof UpdateAdminUserRole200Role[keyof typeof UpdateAdminUserRole200Role];
+
+
+export const UpdateAdminUserRole200Role = {
+  user: 'user',
+  admin: 'admin',
+} as const;
+
+export type UpdateAdminUserRole200 = {
+  id: number;
+  username: string;
+  email: string;
+  role: UpdateAdminUserRole200Role;
+};
+

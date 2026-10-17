@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
   CreditCard, Smartphone, Loader2, CheckCircle2,
-  Shield, ArrowRight, Gift, ChevronLeft,
+  Shield, ArrowRight, Gift, ChevronLeft, Landmark,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.DEV ? "http://localhost:8080" : "";
@@ -26,7 +26,15 @@ interface Props {
 }
 
 function formatPrice(price: number, currency: string) {
-  return `${currency} ${(price / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  const code = (currency || "NGN").toUpperCase();
+  try {
+    return new Intl.NumberFormat(code === "NGN" ? "en-NG" : "en-KE", {
+      style: "currency",
+      currency: code,
+    }).format(price / 100);
+  } catch {
+    return `${code} ${(price / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  }
 }
 
 export function PaymentModal({
@@ -40,6 +48,10 @@ export function PaymentModal({
   const [reference, setReference] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+
+  // Naira templates pay through Paystack checkout (card, bank transfer, USSD);
+  // KES templates keep card + M-Pesa STK.
+  const isNgn = (currency || "NGN").toUpperCase() === "NGN";
 
   function authHeader() {
     const token = localStorage.getItem("junex_token");
@@ -197,6 +209,24 @@ export function PaymentModal({
               <span className="font-bold text-lg text-primary">{formatPrice(price, currency)}</span>
             </div>
 
+            {isNgn ? (
+              <div className="grid grid-cols-1 gap-3">
+                {/* Naira: one Paystack checkout covering card, transfer, USSD */}
+                <button
+                  type="button"
+                  onClick={() => setMethod("card")}
+                  className="flex flex-col items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all border-primary bg-primary/5"
+                >
+                  <div className="p-3 rounded-xl bg-primary/20">
+                    <Landmark className="h-6 w-6 text-primary" />
+                  </div>
+                  <p className="text-sm font-medium">Card, Bank Transfer or USSD</p>
+                  <p className="text-xs text-muted-foreground text-center">
+                    All Nigerian payment methods in one checkout
+                  </p>
+                </button>
+              </div>
+            ) : (
             <div className="grid grid-cols-2 gap-3">
               {/* Card */}
               <button
@@ -228,6 +258,7 @@ export function PaymentModal({
                 <p className="text-xs text-muted-foreground text-center">STK Push</p>
               </button>
             </div>
+            )}
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Shield className="h-3.5 w-3.5 text-primary flex-shrink-0" />
@@ -237,7 +268,7 @@ export function PaymentModal({
             <Button className="w-full gap-2" onClick={handleProceed} disabled={isLoading}>
               {isLoading
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening...</>
-                : <><ArrowRight className="h-4 w-4" /> Continue with {method === "card" ? "Card" : "M-Pesa"}</>
+                : <><ArrowRight className="h-4 w-4" /> {isNgn ? `Pay ${formatPrice(price, currency)}` : `Continue with ${method === "card" ? "Card" : "M-Pesa"}`}</>
               }
             </Button>
           </div>

@@ -5,9 +5,14 @@
  * JuneXDeployment API — Discord bot hosting platform
  * OpenAPI spec version: 0.1.0
  */
+import type { PaymentInitiateResponseCurrency } from './paymentInitiateResponseCurrency';
 
 export interface PaymentInitiateResponse {
   authorizationUrl: string;
   reference: string;
   accessCode: string;
+  amount?: number;
+  currency?: PaymentInitiateResponseCurrency;
+  channels?: string[];
+  templateName?: string;
 }

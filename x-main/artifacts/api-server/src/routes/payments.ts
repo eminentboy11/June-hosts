@@ -3,21 +3,34 @@ import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { db, paymentsTable, templatesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import {
+  PAYSTACK_SECRET,
+  PAYSTACK_BASE,
+  paystackHeaders,
+  verifyPaystackSignature,
+  getRawBody,
+  headerValue,
+} from "../lib/paystack";
 
 const router: IRouter = Router();
 
-const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY ?? "";
-const PAYSTACK_BASE = "https://api.paystack.co";
+// Currencies this gateway accepts. NGN is charged in kobo, KES in cents
+// (Paystack "smallest currency unit" = amount × 100).
+const SUPPORTED_CURRENCIES = new Set(["NGN", "KES"]);
 
-function paystackHeaders() {
-  return {
-    Authorization: `Bearer ${PAYSTACK_SECRET}`,
-    "Content-Type": "application/json",
-  };
-}
+// Paystack checkout channels per currency. For NGN, bank transfer and USSD
+// are the everyday rails in Nigeria — card alone is not a naira payment gate.
+const PAYSTACK_CHANNELS: Record<string, string[]> = {
+  NGN: ["card", "bank_transfer", "ussd"],
+  KES: ["card"],
+};
 
 function generateReference() {
   return `JUNEX-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+function resolveCurrency(raw: string | null | undefined): string {
+  return (raw ?? "NGN").toUpperCase();
 }
 
 // ── Check if user has paid for a template ─────────────────────
@@ -40,10 +53,10 @@ router.get("/payments/check/:templateId", requireAuth, async (req, res): Promise
   res.json({ paid: !!payment, isFree: false, payment: payment ?? null });
 });
 
-// ── Initiate card payment ──────────────────────────────────────
+// ── Initiate payment (NGN: card / bank transfer / USSD; KES: card) ──
 router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> => {
   const user = (req as any).user;
-  const { templateId, currency, callbackUrl } = req.body;
+  const { templateId, callbackUrl } = req.body;
 
   if (!templateId) { res.status(400).json({ error: "templateId is required" }); return; }
   if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured. Add PAYSTACK_SECRET_KEY." }); return; }
@@ -52,8 +65,14 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
   if (!template) { res.status(404).json({ error: "Template not found" }); return; }
   if (template.isFree) { res.json({ isFree: true }); return; }
 
+  // Currency is server-authoritative (the template's own price currency),
+  // never client-supplied — a client cannot pick a different currency.
+  const useCurrency = resolveCurrency(template.currency);
+  if (!SUPPORTED_CURRENCIES.has(useCurrency)) {
+    res.status(400).json({ error: `Unsupported currency: ${useCurrency}` }); return;
+  }
+
   const reference = generateReference();
-  const useCurrency = currency ?? template.currency ?? "KES";
 
   // Record pending payment
   await db.insert(paymentsTable).values({
@@ -72,9 +91,10 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
       headers: paystackHeaders(),
       body: JSON.stringify({
         email: user.email,
-        amount: template.price,     // already in kobo/cents
+        amount: template.price,     // smallest unit: kobo (NGN) / cents (KES)
         currency: useCurrency,
         reference,
+        channels: PAYSTACK_CHANNELS[useCurrency],
         callback_url: callbackUrl ?? `${process.env.FRONTEND_URL ?? process.env.RENDER_EXTERNAL_URL ?? "http://localhost:5000"}/payment-callback`,
         metadata: { templateId: template.id, templateName: template.name },
       }),
@@ -90,6 +110,7 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
       accessCode: data.data.access_code,
       amount: template.price,
       currency: useCurrency,
+      channels: PAYSTACK_CHANNELS[useCurrency],
       templateName: template.name,
     });
   } catch (err) {
@@ -98,7 +119,7 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
   }
 });
 
-// ── STK Push (M-Pesa) ─────────────────────────────────────────
+// ── STK Push (M-Pesa) — KES templates only ───────────────────
 router.post("/payments/stk-push", requireAuth, async (req, res): Promise<void> => {
   const user = (req as any).user;
   const { phone, templateId } = req.body;
@@ -109,6 +130,10 @@ router.post("/payments/stk-push", requireAuth, async (req, res): Promise<void> =
   const [template] = await db.select().from(templatesTable).where(eq(templatesTable.id, parseInt(templateId, 10)));
   if (!template) { res.status(404).json({ error: "Template not found" }); return; }
   if (template.isFree) { res.json({ isFree: true }); return; }
+  if (resolveCurrency(template.currency) !== "KES") {
+    res.status(400).json({ error: "M-Pesa is only available for KES templates. Use card, bank transfer or USSD for NGN." });
+    return;
+  }
 
   const reference = generateReference();
   const normalizedPhone = phone.startsWith("+") ? phone.slice(1) : phone;
@@ -155,10 +180,12 @@ router.post("/payments/stk-push", requireAuth, async (req, res): Promise<void> =
 
 // ── Verify payment + unlock deployment ───────────────────────
 router.get("/payments/verify/:reference", requireAuth, async (req, res): Promise<void> => {
-  const user = (req as any).user;
   const raw = Array.isArray(req.params.reference) ? req.params.reference[0] : req.params.reference;
   if (!raw) { res.status(400).json({ error: "Reference is required" }); return; }
   if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured." }); return; }
+
+  // Look up our record first so the Paystack amount can be matched against it.
+  const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.reference, raw));
 
   try {
     const response = await fetch(`${PAYSTACK_BASE}/transaction/verify/${encodeURIComponent(raw)}`, {
@@ -171,12 +198,20 @@ router.get("/payments/verify/:reference", requireAuth, async (req, res): Promise
     }
 
     const txStatus = data.data.status; // "success" | "failed" | "pending"
+    const channel = typeof data.data.channel === "string" ? data.data.channel : undefined;
+
+    if (txStatus === "success" && payment && (data.data.amount !== payment.amount || data.data.currency !== payment.currency)) {
+      // Never unlock on an amount/currency Paystack did not actually charge.
+      logger.warn({ reference: raw }, "Verify amount/currency mismatch — not unlocking");
+      res.status(400).json({ error: "Payment amount or currency does not match this purchase" });
+      return;
+    }
 
     // Update our payments record
     if (txStatus === "success") {
       await db
         .update(paymentsTable)
-        .set({ status: "success", paidAt: new Date() })
+        .set({ status: "success", paidAt: new Date(), ...(channel ? { method: channel } : {}) })
         .where(eq(paymentsTable.reference, raw));
     } else if (txStatus === "failed") {
       await db
@@ -190,6 +225,7 @@ router.get("/payments/verify/:reference", requireAuth, async (req, res): Promise
       reference: data.data.reference,
       amount: data.data.amount,
       currency: data.data.currency,
+      channel: channel ?? null,
       paidAt: data.data.paid_at ?? null,
       unlocked: txStatus === "success",
     });
@@ -199,18 +235,50 @@ router.get("/payments/verify/:reference", requireAuth, async (req, res): Promise
   }
 });
 
-// ── Paystack Webhook ──────────────────────────────────────────
+// ── Paystack Webhook (HMAC-SHA512 over the RAW body) ─────────
 router.post("/payments/webhook", async (req, res): Promise<void> => {
-  const hash = req.headers["x-paystack-signature"];
-  // In production verify HMAC-SHA512 signature here
-  const event = req.body as any;
+  const signature = headerValue(req.headers["x-paystack-signature"]);
+  const raw = getRawBody(req);
+
+  if (!verifyPaystackSignature(raw, signature)) {
+    logger.warn("Invalid Paystack webhook signature (payments)");
+    res.sendStatus(401);
+    return;
+  }
+
+  let event: any;
+  try {
+    event = JSON.parse(raw.toString("utf8"));
+  } catch {
+    res.sendStatus(400);
+    return;
+  }
 
   if (event.event === "charge.success") {
-    const reference = event.data?.reference;
+    const reference = event.data?.reference as string | undefined;
+    const amount = event.data?.amount as number | undefined;
+    const currency = event.data?.currency as string | undefined;
+    const channel = typeof event.data?.channel === "string" ? event.data.channel : undefined;
+
+    if (reference) {
+      const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.reference, reference));
+      if (payment && payment.status !== "success") {
+        if (payment.amount === amount && payment.currency === currency) {
+          await db
+            .update(paymentsTable)
+            .set({ status: "success", paidAt: new Date(), ...(channel ? { method: channel } : {}) })
+            .where(eq(paymentsTable.reference, reference));
+        } else {
+          logger.warn({ reference }, "Webhook amount/currency mismatch — ignored");
+        }
+      }
+    }
+  } else if (event.event === "charge.failed") {
+    const reference = event.data?.reference as string | undefined;
     if (reference) {
       await db
         .update(paymentsTable)
-        .set({ status: "success", paidAt: new Date() })
+        .set({ status: "failed" })
         .where(eq(paymentsTable.reference, reference));
     }
   }

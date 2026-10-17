@@ -920,16 +920,17 @@ components:
 
     PaymentInitiateInput:
       type: object
-      required: [email, amount, planType]
+      required: [templateId]
       properties:
-        email:
-          type: string
-        amount:
+        templateId:
           type: integer
-        planType:
-          type: string
         currency:
           type: string
+          description: >
+            Optional hint only; the server always charges the template's own
+            currency. NGN is paid in kobo via card, bank transfer or USSD;
+            KES in cents via card (M-Pesa has its own stk-push endpoint).
+          enum: [NGN, KES]
         callbackUrl:
           type: string
 
@@ -942,6 +943,17 @@ components:
         reference:
           type: string
         accessCode:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+          enum: [NGN, KES]
+        channels:
+          type: array
+          items:
+            type: string
+        templateName:
           type: string
 
     StkPushInput:
@@ -978,7 +990,15 @@ components:
           type: string
         amount:
           type: integer
+        currency:
+          type: string
+          enum: [NGN, KES]
+        channel:
+          type: [string, "null"]
+          description: Paystack charge channel (card, bank_transfer, ussd, mpesa, ...)
         email:
           type: string
         paidAt:
           type: ["string", "null"]
+        unlocked:
+          type: boolean

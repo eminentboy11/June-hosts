@@ -43,6 +43,8 @@ import type {
   Template,
   TemplateInput,
   TemplateUpdate,
+  UpdateAdminUserRole200,
+  UpdateAdminUserRoleBody,
   User
 } from './api.schemas';
 
@@ -1759,6 +1761,78 @@ export function useListAdminUsers<TData = Awaited<ReturnType<typeof listAdminUse
 
 
 
+
+export const getUpdateAdminUserRoleUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/users/${id}/role`
+}
+
+/**
+ * @summary Update a user role (admin only)
+ */
+export const updateAdminUserRole = async (id: number,
+    updateAdminUserRoleBody: UpdateAdminUserRoleBody, options?: RequestInit): Promise<UpdateAdminUserRole200> => {
+
+  return customFetch<UpdateAdminUserRole200>(getUpdateAdminUserRoleUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateAdminUserRoleBody,)
+  }
+);}
+
+
+
+
+export const getUpdateAdminUserRoleMutationOptions = <TError = ErrorType<ErrorResponse | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminUserRole>>, TError,{id: number;data: BodyType<UpdateAdminUserRoleBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAdminUserRole>>, TError,{id: number;data: BodyType<UpdateAdminUserRoleBody>}, TContext> => {
+
+const mutationKey = ['updateAdminUserRole'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAdminUserRole>>, {id: number;data: BodyType<UpdateAdminUserRoleBody>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateAdminUserRole(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAdminUserRoleMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdminUserRole>>>
+    export type UpdateAdminUserRoleMutationBody = BodyType<UpdateAdminUserRoleBody>
+    export type UpdateAdminUserRoleMutationError = ErrorType<ErrorResponse | void>
+
+    /**
+ * @summary Update a user role (admin only)
+ */
+export const useUpdateAdminUserRole = <TError = ErrorType<ErrorResponse | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminUserRole>>, TError,{id: number;data: BodyType<UpdateAdminUserRoleBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAdminUserRole>>,
+        TError,
+        {id: number;data: BodyType<UpdateAdminUserRoleBody>},
+        TContext
+      > => {
+      return useMutation(getUpdateAdminUserRoleMutationOptions(options));
+    }
 
 export const getListAdminDeploymentsUrl = () => {
 

@@ -5,11 +5,12 @@
  * JuneXDeployment API — Discord bot hosting platform
  * OpenAPI spec version: 0.1.0
  */
+import type { PaymentInitiateInputCurrency } from './paymentInitiateInputCurrency';
 
 export interface PaymentInitiateInput {
-  email: string;
-  amount: number;
-  planType: string;
-  currency?: string;
+  templateId: number;
+  /** Optional hint only; the server always charges the template's own currency. NGN is paid in kobo via card, bank transfer or USSD; KES in cents via card (M-Pesa has its own stk-push endpoint).
+   */
+  currency?: PaymentInitiateInputCurrency;
   callbackUrl?: string;
 }

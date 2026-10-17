@@ -4,7 +4,7 @@ import { logger } from "../lib/logger";
 import { db, usersTable, walletTransactionsTable, templatesTable, coinTransactionsTable } from "@workspace/db";
 import { eq, desc, sql, and } from "drizzle-orm";
 import { getKesPerCoin, getMinimumDepositAmountMinor, kesMinorToCoins } from "../lib/plans";
-import crypto from "crypto";
+import { verifyPaystackSignature, getRawBody, headerValue } from "../lib/paystack";
 
 const router: IRouter = Router();
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY ?? "";
@@ -198,20 +198,24 @@ router.get("/wallet/verify/:reference", requireAuth, async (req, res): Promise<v
 
 // ── Paystack Webhook (auto-credit on charge.success) ─────
 router.post("/wallet/webhook", async (req, res): Promise<void> => {
-  // Verify HMAC signature
-  const signature = req.headers["x-paystack-signature"] as string;
-  if (!PAYSTACK_SECRET || !signature) {
-    res.sendStatus(400);
+  // Verify HMAC-SHA512 over the RAW body (see lib/paystack) — never over
+  // a re-serialized JSON object, which may not match the signed bytes.
+  const signature = headerValue(req.headers["x-paystack-signature"]);
+  const raw = getRawBody(req);
+  if (!verifyPaystackSignature(raw, signature)) {
+    logger.warn("Invalid Paystack webhook signature");
+    res.sendStatus(401);
     return;
   }
-  const hash = crypto.createHmac("sha512", PAYSTACK_SECRET).update(JSON.stringify(req.body)).digest("hex");
-  if (hash !== signature) {
-    logger.warn("Invalid Paystack webhook signature");
+
+  let event: any;
+  try {
+    event = JSON.parse(raw.toString("utf8"));
+  } catch {
     res.sendStatus(400);
     return;
   }
 
-  const event = req.body as any;
   logger.info({ event: event.event }, "Paystack webhook received");
 
   if (event.event === "charge.success") {

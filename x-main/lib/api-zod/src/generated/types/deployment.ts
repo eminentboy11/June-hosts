@@ -28,4 +28,6 @@ export interface Deployment {
   /** @nullable */
   templateThumbnail?: string | null;
   envVars?: DeploymentEnvVars;
+  /** @nullable */
+  databaseUrl?: string | null;
 }

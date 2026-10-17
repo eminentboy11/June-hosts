@@ -38,6 +38,10 @@ app.use(
   }),
 );
 app.use(cors({ origin: allowedOrigins }));
+// Paystack webhooks are verified against the RAW body (HMAC-SHA512), so they
+// must be captured as Buffers before the JSON parser consumes the stream.
+app.use("/api/payments/webhook", express.raw({ type: "*/*", limit: "1mb" }));
+app.use("/api/wallet/webhook", express.raw({ type: "*/*", limit: "1mb" }));
 app.use(express.json({ limit: "3mb" }));
 app.use(express.urlencoded({ extended: true }));
 

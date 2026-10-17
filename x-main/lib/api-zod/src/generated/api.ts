@@ -232,7 +232,8 @@ export const ListDeploymentsResponseItem = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 export const ListDeploymentsResponse = zod.array(ListDeploymentsResponseItem)
 
@@ -268,7 +269,8 @@ export const GetDeploymentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 
 
@@ -301,7 +303,8 @@ export const StartDeploymentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 
 
@@ -326,7 +329,8 @@ export const StopDeploymentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 
 
@@ -351,7 +355,8 @@ export const RestartDeploymentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 
 
@@ -392,7 +397,8 @@ export const UpdateDeploymentEnvResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 
 
@@ -418,7 +424,8 @@ export const GetDashboardSummaryResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 }))
 })
 
@@ -483,7 +490,8 @@ export const ListAdminDeploymentsResponseItem = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 export const ListAdminDeploymentsResponse = zod.array(ListAdminDeploymentsResponseItem)
 
@@ -530,7 +538,8 @@ export const SuspendDeploymentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string().optional(),
   "templateThumbnail": zod.string().nullish(),
-  "envVars": zod.record(zod.string(), zod.string()).optional()
+  "envVars": zod.record(zod.string(), zod.string()).optional(),
+  "databaseUrl": zod.string().nullish()
 })
 
 
@@ -538,17 +547,19 @@ export const SuspendDeploymentResponse = zod.object({
  * @summary Initiate a Paystack card payment
  */
 export const InitiatePaymentBody = zod.object({
-  "email": zod.string(),
-  "amount": zod.number(),
-  "planType": zod.string(),
-  "currency": zod.string().optional(),
+  "templateId": zod.number(),
+  "currency": zod.enum(['NGN', 'KES']).optional().describe('Optional hint only; the server always charges the template\'s own currency. NGN is paid in kobo via card, bank transfer or USSD; KES in cents via card (M-Pesa has its own stk-push endpoint).\n'),
   "callbackUrl": zod.string().optional()
 })
 
 export const InitiatePaymentResponse = zod.object({
   "authorizationUrl": zod.string(),
   "reference": zod.string(),
-  "accessCode": zod.string()
+  "accessCode": zod.string(),
+  "amount": zod.number().optional(),
+  "currency": zod.enum(['NGN', 'KES']).optional(),
+  "channels": zod.array(zod.string()).optional(),
+  "templateName": zod.string().optional()
 })
 
 
@@ -580,6 +591,11 @@ export const VerifyPaymentResponse = zod.object({
   "status": zod.string(),
   "reference": zod.string(),
   "amount": zod.number().optional(),
+  "currency": zod.enum(['NGN', 'KES']).optional(),
+  "channel": zod.string().nullish().describe('Paystack charge channel (card, bank_transfer, ussd, mpesa, ...)'),
   "email": zod.string().optional(),
-  "paidAt": zod.string().nullish()
+  "paidAt": zod.string().nullish(),
+  "unlocked": zod.boolean().optional()
 })
+
+
