@@ -92,16 +92,16 @@ export default function Register() {
                       <FormLabel>Country</FormLabel>
                       <FormControl>
                         <select {...field} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                          <option value="KE">Kenya — KES</option>
                           <option value="NG">Nigeria — NGN</option>
+                          <option value="KE">Kenya — KES</option>
                           <option value="GH">Ghana — GHS</option>
                           <option value="ZA">South Africa — ZAR</option>
                           <option value="CI">Côte d’Ivoire — XOF</option>
-                          <option value="OTHER">Other countries — KES checkout</option>
+                          <option value="OTHER">Other countries — NGN checkout</option>
                         </select>
                       </FormControl>
                       <FormMessage />
-                      <p className="text-xs text-muted-foreground">All Paystack checkouts use KES. Check your wallet for the current coin conversion rate.</p>
+                      <p className="text-xs text-muted-foreground">Deposits use the Paystack naira (NGN) checkout — card, bank transfer or USSD. Check your wallet for the current coin rate.</p>
                     </FormItem>
                   )}
                 />

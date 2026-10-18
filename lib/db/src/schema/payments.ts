@@ -10,7 +10,7 @@ export const paymentsTable = pgTable("payments", {
   templateId: integer("template_id").notNull().references(() => templatesTable.id, { onDelete: "cascade" }),
   reference: text("reference").notNull().unique(),
   amount: integer("amount").notNull(),               // in smallest currency unit
-  currency: text("currency").notNull().default("KES"),
+  currency: text("currency").notNull().default("NGN"),
   status: text("status").notNull().default("pending"), // pending | success | failed
   method: text("method").notNull().default("card"),    // card | mpesa
   paidAt: timestamp("paid_at", { withTimezone: true }),

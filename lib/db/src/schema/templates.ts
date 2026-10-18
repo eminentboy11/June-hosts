@@ -15,7 +15,7 @@ export const templatesTable = pgTable("templates", {
   isFeatured: boolean("is_featured").notNull().default(false),
   showDeployCount: boolean("show_deploy_count").notNull().default(true),
   price: integer("price").notNull().default(0),
-  currency: text("currency").notNull().default("KES"),
+  currency: text("currency").notNull().default("NGN"),
   pairSiteUrl: text("pair_site_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

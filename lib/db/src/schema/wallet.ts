@@ -8,7 +8,7 @@ export const walletTransactionsTable = pgTable("wallet_transactions", {
   userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   type: text("type").notNull(),           // deposit | deduction
   amount: integer("amount").notNull(),    // in cents, always positive
-  currency: text("currency").notNull().default("KES"),
+  currency: text("currency").notNull().default("NGN"),
   reference: text("reference").unique(),  // Paystack reference for deposits
   description: text("description").notNull(),
   status: text("status").notNull().default("pending"), // pending | success | failed

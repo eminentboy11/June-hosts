@@ -1,11 +1,11 @@
 import { Router, type IRouter } from "express";
 import { requireAdmin } from "../lib/auth";
-import { getKesPerCoin, getPlans, savePlans } from "../lib/plans";
+import { getNgnPerCoin, getPlans, savePlans } from "../lib/plans";
 
 const router: IRouter = Router();
 const response = async () => {
-  const [plans, kesPerCoin] = await Promise.all([getPlans(), getKesPerCoin()]);
-  return { plans, kesPerCoin, coinsPerKes: 1 / kesPerCoin, chargeCurrency: "KES" };
+  const [plans, ngnPerCoin] = await Promise.all([getPlans(), getNgnPerCoin()]);
+  return { plans, ngnPerCoin, coinsPerNgn: 1 / ngnPerCoin, chargeCurrency: "NGN" };
 };
 
 router.get("/plans", async (_req, res): Promise<void> => {
@@ -19,9 +19,9 @@ router.get("/admin/plans", requireAdmin, async (_req, res): Promise<void> => {
 });
 
 router.put("/admin/plans", requireAdmin, async (req, res): Promise<void> => {
-  const plans = await savePlans(req.body?.plans, req.body?.kesPerCoin);
+  const plans = await savePlans(req.body?.plans, req.body?.ngnPerCoin);
   if (!plans) {
-    res.status(400).json({ error: "Choose a coin value from KES 0.01 to KES 100,000 and add 1–12 valid plans (1–365 days, 1–500,000 coins)" });
+    res.status(400).json({ error: "Choose a coin value from NGN 0.01 to NGN 100,000 and add 1–12 valid plans (1–365 days, 1–500,000 coins)" });
     return;
   }
   res.setHeader("Cache-Control", "no-store");

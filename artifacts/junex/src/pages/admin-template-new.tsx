@@ -34,7 +34,7 @@ const templateSchema = z.object({
   appJson: z.string().min(2, "Valid JSON is required"),
   isFree: z.boolean().default(false),
   price: z.number().min(0).default(0),
-  currency: z.string().default("KES"),
+  currency: z.string().default("NGN"),
   pairSiteUrl: z.string().optional().or(z.literal("")),
 });
 
@@ -57,7 +57,7 @@ export default function AdminTemplateNew() {
     defaultValues: {
       name: "", slug: "", description: "", githubRepo: "", category: "",
       thumbnail: "", appJson: "{}", isFree: false, price: 0,
-      currency: "KES", pairSiteUrl: "",
+      currency: "NGN", pairSiteUrl: "",
     },
   });
 

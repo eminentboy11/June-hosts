@@ -6,25 +6,26 @@ export const DEFAULT_PLANS: HostingPlan[] = [
   { id: "two-weeks", name: "2 Weeks", days: 14, coins: 25 },
   { id: "month", name: "1 Month", days: 30, coins: 35 },
 ];
-export const DEFAULT_KES_PER_COIN = 2;
-const KES_PER_COIN_SETTING = "KES_PER_COIN";
+export const DEFAULT_NGN_PER_COIN = 20;
+const NGN_PER_COIN_SETTING = "NGN_PER_COIN";
 
 const PLAN_PRICING_VERSION = "kes-per-coin-3";
 let planPricingMigration: Promise<void> | null = null;
 
-export async function getKesPerCoin(): Promise<number> {
-  const saved = Number(await getSetting(KES_PER_COIN_SETTING));
+export async function getNgnPerCoin(): Promise<number> {
+  const saved = Number(await getSetting(NGN_PER_COIN_SETTING));
   return Number.isFinite(saved) && saved >= 0.01 && saved <= 100_000
     ? saved
-    : DEFAULT_KES_PER_COIN;
+    : DEFAULT_NGN_PER_COIN;
 }
 
 export async function getMinimumDepositAmountMinor(): Promise<number> {
-  return Math.max(300, Math.ceil((await getKesPerCoin()) * 100));
+  // Paystack cannot charge less than NGN 100 (10,000 kobo).
+  return Math.max(10_000, Math.ceil((await getNgnPerCoin()) * 100));
 }
 
-export function kesMinorToCoins(amount: number, kesPerCoin: number): number {
-  return Math.floor(amount / (kesPerCoin * 100) + Number.EPSILON * 4);
+export function ngnMinorToCoins(amount: number, ngnPerCoin: number): number {
+  return Math.floor(amount / (ngnPerCoin * 100) + Number.EPSILON * 4);
 }
 
 async function migrateSavedPlanPrices(): Promise<void> {
@@ -91,12 +92,12 @@ export async function findPlan(id: unknown): Promise<HostingPlan | undefined> {
   return (await getPlans()).find((plan) => plan.id === id);
 }
 
-export async function savePlans(value: unknown, kesPerCoinValue?: unknown): Promise<HostingPlan[] | null> {
+export async function savePlans(value: unknown, ngnPerCoinValue?: unknown): Promise<HostingPlan[] | null> {
   await migrateSavedPlanPrices();
   if (!Array.isArray(value) || value.length < 1 || value.length > 12) return null;
-  const requestedRate = kesPerCoinValue === undefined ? await getKesPerCoin() : Number(kesPerCoinValue);
-  const kesPerCoin = Math.round(requestedRate * 100) / 100;
-  if (!Number.isFinite(requestedRate) || requestedRate < 0.01 || requestedRate > 100_000 || Math.abs(kesPerCoin - requestedRate) > 1e-8) return null;
+  const requestedRate = ngnPerCoinValue === undefined ? await getNgnPerCoin() : Number(ngnPerCoinValue);
+  const ngnPerCoin = Math.round(requestedRate * 100) / 100;
+  if (!Number.isFinite(requestedRate) || requestedRate < 0.01 || requestedRate > 100_000 || Math.abs(ngnPerCoin - requestedRate) > 1e-8) return null;
   const plans: HostingPlan[] = [];
   for (const item of value) {
     if (!item || typeof item !== "object") return null;
@@ -109,6 +110,6 @@ export async function savePlans(value: unknown, kesPerCoinValue?: unknown): Prom
     if (plans.some((current) => current.id === id)) return null;
     plans.push({ id, name, days, coins });
   }
-  await setSettings({ HOSTING_PLANS: JSON.stringify(plans), [KES_PER_COIN_SETTING]: String(kesPerCoin) });
+  await setSettings({ HOSTING_PLANS: JSON.stringify(plans), [NGN_PER_COIN_SETTING]: String(ngnPerCoin) });
   return plans;
 }

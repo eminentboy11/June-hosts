@@ -46,7 +46,7 @@ export function AdminTemplateEditModal({ template, open, onOpenChange, onSaved }
   const [form, setForm] = useState({
     name: "", description: "", githubRepo: "", thumbnail: "",
     category: "", appJson: "{}", isFree: false,
-    price: "0", currency: "KES", pairSiteUrl: "",
+    price: "0", currency: "NGN", pairSiteUrl: "",
     isFeatured: false, showDeployCount: true,
   });
 
@@ -61,7 +61,7 @@ export function AdminTemplateEditModal({ template, open, onOpenChange, onSaved }
         appJson: JSON.stringify(template.appJson, null, 2),
         isFree: template.isFree,
         price: String((template.price ?? 0) / 100),
-        currency: template.currency ?? "KES",
+        currency: template.currency ?? "NGN",
         pairSiteUrl: template.pairSiteUrl ?? "",
         isFeatured: template.isFeatured ?? false,
         showDeployCount: template.showDeployCount ?? true,

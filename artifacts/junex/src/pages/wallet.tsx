@@ -23,7 +23,7 @@ interface WalletData {
   currency: string;
   transactions: Transaction[];
   coinTransactions: CoinTransaction[];
-  kesPerCoin: number;
+  ngnPerCoin: number;
   minimumDepositAmount: number;
 }
 
@@ -51,7 +51,7 @@ interface Transaction {
 
 type DepositStep = "amount" | "method" | "mpesa-phone" | "mpesa-pending" | "card-pending" | "done";
 
-const PRESET_AMOUNTS = [500, 1000, 2000, 5000];
+const PRESET_AMOUNTS = [100, 200, 500, 1000];
 
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, string> = {
@@ -69,8 +69,16 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function fmt(amount: number, currency = "KES") {
-  return `${currency} ${(amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+function fmt(amount: number, currency = "NGN") {
+  const code = (currency || "NGN").toUpperCase();
+  try {
+    return new Intl.NumberFormat(code === "NGN" ? "en-NG" : "en-KE", {
+      style: "currency",
+      currency: code,
+    }).format(amount / 100);
+  } catch {
+    return `${code} ${(amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  }
 }
 function fmtCoins(amount: number) { return `${amount.toLocaleString()} coins`; }
 
@@ -128,12 +136,12 @@ export default function WalletPage() {
 
   async function handleCardDeposit() {
     const amount = getAmount();
-    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is KES ${minimumDepositText()}`, variant: "destructive" }); return; }
+    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is ₦${minimumDepositText()}`, variant: "destructive" }); return; }
     setIsProcessing(true);
     try {
       const res = await fetch(`${API_BASE}/api/wallet/deposit/card`, {
         method: "POST", headers: authHeader(),
-        body: JSON.stringify({ amount, currency: "KES" }),
+        body: JSON.stringify({ amount, currency: "NGN" }),
       });
       const d = await res.json();
       if (!res.ok) { toast({ title: d.error ?? "Failed", variant: "destructive" }); return; }
@@ -144,7 +152,7 @@ export default function WalletPage() {
       handler.newTransaction({
         key: "",
         accessCode: d.accessCode,
-        channels: ["card"],
+        channels: ["card", "bank_transfer", "ussd"],
         onSuccess: async (tx: { reference: string }) => {
           setReference(tx.reference);
           setStep("card-pending");
@@ -171,7 +179,7 @@ export default function WalletPage() {
   async function handleStkPush() {
     if (!phone.trim()) { toast({ title: "Enter your M-Pesa number", variant: "destructive" }); return; }
     const amount = getAmount();
-    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is KES ${minimumDepositText()}`, variant: "destructive" }); return; }
+    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is ₦${minimumDepositText()}`, variant: "destructive" }); return; }
     setIsProcessing(true);
     try {
       const res = await fetch(`${API_BASE}/api/wallet/deposit/mpesa`, {
@@ -269,7 +277,7 @@ export default function WalletPage() {
                     {fmtCoins(data?.balance ?? 0)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-2">
-                    KES {data?.kesPerCoin ?? 2} adds 1 coin. Hosting plans are paid in coins.
+                    ₦{data?.ngnPerCoin ?? 20} adds 1 coin. Hosting plans are paid in coins.
                   </p>
                 </div>
                 <div className="h-16 w-16 rounded-2xl bg-primary/20 flex items-center justify-center">
@@ -290,8 +298,7 @@ export default function WalletPage() {
                     {fmt(
                       (data?.transactions ?? [])
                         .filter(t => t.type === "deposit" && t.status === "success")
-                        .reduce((s, t) => s + t.amount, 0),
-                      "KES"
+                        .reduce((s, t) => s + t.amount, 0)
                     )}
                   </p>
                 </CardContent>
@@ -358,7 +365,7 @@ export default function WalletPage() {
                           <div className="flex items-center gap-2 mt-0.5">
                             {tx.method && (
                               <span className="text-xs text-muted-foreground capitalize">
-                                {tx.method === "mpesa" ? "M-Pesa" : "Card"}
+                                {tx.method === "mpesa" ? "M-Pesa" : tx.method === "bank_transfer" ? "Bank Transfer" : tx.method === "ussd" ? "USSD" : "Card"}
                               </span>
                             )}
                             <span className="text-xs text-muted-foreground">
@@ -439,12 +446,12 @@ export default function WalletPage() {
                         : "border-border/40 hover:border-primary/40"
                     }`}
                   >
-                    KES {a.toLocaleString()}
+                    ₦ {a.toLocaleString()}
                   </button>
                 ))}
               </div>
               <div className="space-y-1.5">
-                <Label>Custom amount (KES)</Label>
+                <Label>Custom amount (NGN)</Label>
                 <Input
                   type="number"
                   placeholder="Enter amount..."
@@ -453,13 +460,13 @@ export default function WalletPage() {
                   min={minimumDepositAmount / 100}
                   className="text-base"
                 />
-                <p className="text-xs text-muted-foreground">Minimum deposit: KES {minimumDepositText()}</p>
+                <p className="text-xs text-muted-foreground">Minimum deposit: ₦{minimumDepositText()}</p>
               </div>
               <Button
                 className="w-full gap-2"
                 onClick={() => {
                   const amt = getAmount();
-                  if (amt < minimumDepositAmount) { toast({ title: `Minimum deposit is KES ${minimumDepositText()}`, variant: "destructive" }); return; }
+                  if (amt < minimumDepositAmount) { toast({ title: `Minimum deposit is ₦${minimumDepositText()}`, variant: "destructive" }); return; }
                   setStep("method");
                 }}
               >
@@ -476,33 +483,20 @@ export default function WalletPage() {
                 <span className="font-bold text-primary text-lg">{fmt(getAmount())}</span>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
+                {/* Naira: one Paystack checkout covering card, transfer, USSD */}
                 <button
                   type="button"
                   onClick={() => setMethod("card")}
-                  className={`flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all ${
-                    method === "card" ? "border-primary bg-primary/5" : "border-border/40 hover:border-primary/40"
-                  }`}
+                  className="flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all border-primary bg-primary/5"
                 >
-                  <div className={`p-3 rounded-xl ${method === "card" ? "bg-primary/20" : "bg-muted"}`}>
-                    <CreditCard className={`h-6 w-6 ${method === "card" ? "text-primary" : "text-muted-foreground"}`} />
+                  <div className="p-3 rounded-xl bg-primary/20">
+                    <CreditCard className="h-6 w-6 text-primary" />
                   </div>
-                  <p className="text-sm font-medium">Card</p>
-                  <p className="text-xs text-muted-foreground text-center">Visa, Mastercard</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMethod("mpesa")}
-                  className={`flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all ${
-                    method === "mpesa" ? "border-primary bg-primary/5" : "border-border/40 hover:border-primary/40"
-                  }`}
-                >
-                  <div className={`p-3 rounded-xl ${method === "mpesa" ? "bg-primary/20" : "bg-muted"}`}>
-                    <Smartphone className={`h-6 w-6 ${method === "mpesa" ? "text-primary" : "text-muted-foreground"}`} />
-                  </div>
-                  <p className="text-sm font-medium">M-Pesa</p>
-                  <p className="text-xs text-muted-foreground text-center">STK Push</p>
+                  <p className="text-sm font-medium">Card, Bank Transfer or USSD</p>
+                  <p className="text-xs text-muted-foreground text-center">
+                    All Nigerian payment methods in one checkout
+                  </p>
                 </button>
               </div>
 

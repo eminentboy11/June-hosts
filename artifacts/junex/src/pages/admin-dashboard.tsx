@@ -978,13 +978,13 @@ export default function AdminDashboard() {
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <div className="p-4 rounded-xl bg-muted/30 border border-border/40">
                               <p className="text-2xl font-bold text-primary">
-                                KES {((health.payments.totalRevenue ?? 0) / 100).toLocaleString()}
+                                ₦{((health.payments.totalRevenue ?? 0) / 100).toLocaleString()}
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">Total Revenue</p>
                             </div>
                             <div className="p-4 rounded-xl bg-muted/30 border border-border/40">
                               <p className="text-2xl font-bold">
-                                KES {((health.payments.totalWalletBalance ?? 0) / 100).toLocaleString()}
+                                ₦{((health.payments.totalWalletBalance ?? 0) / 100).toLocaleString()}
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">Total Wallet Balance</p>
                             </div>
