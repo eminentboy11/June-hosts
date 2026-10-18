@@ -101,7 +101,7 @@ export default function Register() {
                         </select>
                       </FormControl>
                       <FormMessage />
-                      <p className="text-xs text-muted-foreground">Deposits use the Paystack naira (NGN) checkout — card, bank transfer or USSD. Check your wallet for the current coin rate.</p>
+                      <p className="text-xs text-muted-foreground">Your country sets your wallet currency: Nigeria uses naira (₦ — card, bank transfer or USSD), Kenya uses KES (M-Pesa or card).</p>
                     </FormItem>
                   )}
                 />

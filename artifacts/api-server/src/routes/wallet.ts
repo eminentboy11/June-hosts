@@ -3,17 +3,11 @@ import { requireAuth } from "../lib/auth";
 import { logger } from "../lib/logger";
 import { db, usersTable, walletTransactionsTable, templatesTable, coinTransactionsTable } from "@workspace/db";
 import { eq, desc, sql, and } from "drizzle-orm";
-import { getNgnPerCoin, getMinimumDepositAmountMinor, ngnMinorToCoins } from "../lib/plans";
-import { verifyPaystackSignature, getRawBody, headerValue } from "../lib/paystack";
+import { getKesPerCoin, getNgnPerCoin, getMinimumDepositAmountMinor, minorToCoins, pegForCurrency, walletCurrencyForCountry } from "../lib/plans";
+import { verifyPaystackSignature, getRawBody, headerValue, gatewayConfigured, paystackHeaders, PAYSTACK_BASE } from "../lib/paystack";
 
 const router: IRouter = Router();
-const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY ?? "";
-const PAYSTACK_BASE = "https://api.paystack.co";
 const FRONTEND_URL = process.env.FRONTEND_URL ?? process.env.RENDER_EXTERNAL_URL ?? "http://localhost:5000";
-
-function paystackHeaders() {
-  return { Authorization: `Bearer ${PAYSTACK_SECRET}`, "Content-Type": "application/json" };
-}
 
 function generateReference() {
   return `WALLET-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -29,9 +23,8 @@ function formatPhone(phone: string): string {
 }
 
 async function creditWallet(userId: number, amount: number, currency: string, reference: string) {
-  if (currency !== "NGN") throw new Error("Coin deposits are charged in NGN");
-  // Paystack amounts use minor units: 100 = NGN 1.
-  const coins = ngnMinorToCoins(amount, await getNgnPerCoin());
+  // Paystack amounts use minor units: 100 = NGN 1 / KES 1.
+  const coins = minorToCoins(amount, await pegForCurrency(currency));
   return db.transaction(async (tx) => {
     const [claim] = await tx.update(walletTransactionsTable).set({ status: "success" })
       .where(and(eq(walletTransactionsTable.reference, reference), eq(walletTransactionsTable.status, "pending")))
@@ -43,7 +36,7 @@ async function creditWallet(userId: number, amount: number, currency: string, re
     const [user] = await tx.update(usersTable).set({ coinBalance: sql`${usersTable.coinBalance} + ${coins}` })
       .where(eq(usersTable.id, userId)).returning({ coinBalance: usersTable.coinBalance });
     if (!user) throw new Error("Account not found while crediting coin wallet");
-    await tx.insert(coinTransactionsTable).values({ userId, type: "credit", amount: coins, reference: `PAY-${reference}`, description: `NGN ${amount / 100} wallet top-up` });
+    await tx.insert(coinTransactionsTable).values({ userId, type: "credit", amount: coins, reference: `PAY-${reference}`, description: `${currency} ${amount / 100} wallet top-up` });
     await tx.update(walletTransactionsTable).set({ balanceAfter: user.coinBalance }).where(eq(walletTransactionsTable.id, claim.id));
     return user.coinBalance;
   });
@@ -52,7 +45,13 @@ async function creditWallet(userId: number, amount: number, currency: string, re
 // ── Get wallet balance + transactions ────────────────────
 router.get("/wallet", requireAuth, async (req, res): Promise<void> => {
   const user = (req as any).user;
-  const [ngnPerCoin, minimumDepositAmount] = await Promise.all([getNgnPerCoin(), getMinimumDepositAmountMinor()]);
+  // Wallet currency is fixed by the country chosen at sign-up — nothing else.
+  const walletCurrency = walletCurrencyForCountry(user.country);
+  const [ngnPerCoin, kesPerCoin, minimumDepositAmount] = await Promise.all([
+    getNgnPerCoin(),
+    getKesPerCoin(),
+    getMinimumDepositAmountMinor(walletCurrency),
+  ]);
   res.setHeader("Cache-Control", "no-store");
   const [fresh] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
   const transactions = await db
@@ -65,20 +64,33 @@ router.get("/wallet", requireAuth, async (req, res): Promise<void> => {
     .where(eq(coinTransactionsTable.userId, user.id))
     .orderBy(desc(coinTransactionsTable.createdAt))
     .limit(50);
-  res.json({ balance: fresh?.coinBalance ?? 0, currency: "COIN", transactions, coinTransactions, ngnPerCoin, minimumDepositAmount });
+  res.json({
+    balance: fresh?.coinBalance ?? 0,
+    currency: "COIN",
+    walletCurrency,
+    transactions,
+    coinTransactions,
+    ngnPerCoin,
+    kesPerCoin,
+    minimumDepositAmount,
+    kesEnabled: gatewayConfigured("KES"),
+  });
 });
 
-// ── Initiate card deposit ─────────────────────────────────
+// ── Initiate card deposit (currency fixed by sign-up country) ──
 router.post("/wallet/deposit/card", requireAuth, async (req, res): Promise<void> => {
   const user = (req as any).user;
-  const { amount, currency } = req.body;
-  const minimumDepositAmount = await getMinimumDepositAmountMinor();
-  if (!Number.isInteger(amount) || amount < minimumDepositAmount) { res.status(400).json({ error: `Minimum deposit is NGN ${(minimumDepositAmount / 100).toFixed(2)}` }); return; }
-  if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured" }); return; }
-  if (currency && currency !== "NGN") { res.status(400).json({ error: "Coin top-ups are charged in NGN" }); return; }
+  const { amount } = req.body;
+  // Wallet currency follows the country chosen at sign-up — never the client.
+  const useCurrency = walletCurrencyForCountry(user.country);
+  const minimumDepositAmount = await getMinimumDepositAmountMinor(useCurrency);
+  if (!Number.isInteger(amount) || amount < minimumDepositAmount) { res.status(400).json({ error: `Minimum deposit is ${useCurrency} ${(minimumDepositAmount / 100).toFixed(2)}` }); return; }
+  if (!gatewayConfigured(useCurrency)) {
+    res.status(500).json({ error: useCurrency === "KES" ? "Kenyan gateway not configured (PAYSTACK_SECRET_KEY_KE)" : "Payment provider not configured" });
+    return;
+  }
 
   const reference = generateReference();
-  const useCurrency = currency ?? "NGN";
 
   await db.insert(walletTransactionsTable).values({
     userId: user.id, type: "deposit", amount, currency: useCurrency,
@@ -88,10 +100,10 @@ router.post("/wallet/deposit/card", requireAuth, async (req, res): Promise<void>
 
   try {
     const response = await fetch(`${PAYSTACK_BASE}/transaction/initialize`, {
-      method: "POST", headers: paystackHeaders(),
+      method: "POST", headers: paystackHeaders(useCurrency),
       body: JSON.stringify({
         email: user.email, amount, currency: useCurrency, reference,
-        channels: ["card", "bank_transfer", "ussd"],
+        channels: useCurrency === "KES" ? ["card"] : ["card", "bank_transfer", "ussd"],
         callback_url: `${FRONTEND_URL}/wallet`,
         metadata: { type: "wallet_deposit", userId: user.id },
       }),
@@ -110,16 +122,51 @@ router.post("/wallet/deposit/card", requireAuth, async (req, res): Promise<void>
   }
 });
 
-// ── Initiate M-Pesa STK push (removed: KES rail, this deployment charges NGN) ──
+// ── Initiate M-Pesa STK push (Kenyan / KES wallets only) ──
 router.post("/wallet/deposit/mpesa", requireAuth, async (req, res): Promise<void> => {
-  res.status(400).json({ error: "M-Pesa is not available on this deployment (NGN only). Use card, bank transfer or USSD." });
+  const user = (req as any).user;
+  const { phone, amount } = req.body;
+  const useCurrency = walletCurrencyForCountry(user.country);
+  if (useCurrency !== "KES") { res.status(400).json({ error: "M-Pesa is for Kenyan (KES) wallets. Use card, bank transfer or USSD." }); return; }
+  if (!gatewayConfigured("KES")) { res.status(500).json({ error: "Kenyan gateway not configured (PAYSTACK_SECRET_KEY_KE)" }); return; }
+  if (!phone || !Number.isInteger(amount)) { res.status(400).json({ error: "phone and a valid amount are required" }); return; }
+  const minimumDepositAmount = await getMinimumDepositAmountMinor("KES");
+  if (amount < minimumDepositAmount) { res.status(400).json({ error: `Minimum deposit is KES ${(minimumDepositAmount / 100).toFixed(2)}` }); return; }
+  const reference = generateReference();
+  const formattedPhone = formatPhone(phone);
+
+  await db.insert(walletTransactionsTable).values({
+    userId: user.id, type: "deposit", amount, currency: "KES",
+    reference, description: "Wallet top-up via M-Pesa",
+    status: "pending", method: "mpesa", balanceAfter: 0,
+  });
+
+  try {
+    const response = await fetch(`${PAYSTACK_BASE}/charge`, {
+      method: "POST", headers: paystackHeaders("KES"),
+      body: JSON.stringify({
+        email: user.email, amount, currency: "KES", reference,
+        mobile_money: { phone: formattedPhone, provider: "mpesa" },
+        metadata: { type: "wallet_deposit", userId: user.id },
+      }),
+    });
+    const data = await response.json() as any;
+    if (!data.status) { res.status(400).json({ error: data.message ?? "STK push failed" }); return; }
+    res.json({
+      status: data.data?.status ?? "pending",
+      reference,
+      message: "STK push sent to " + formattedPhone + ". Enter your M-Pesa PIN.",
+    });
+  } catch (err) {
+    logger.error({ err }, "Wallet STK push error");
+    res.status(500).json({ error: "STK push failed" });
+  }
 });
 
 // ── Verify + auto-credit wallet ───────────────────────────
 router.get("/wallet/verify/:reference", requireAuth, async (req, res): Promise<void> => {
   const user = (req as any).user;
   const ref = req.params.reference as string;
-  if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured" }); return; }
 
   // Check if already credited (idempotent)
   const [existing] = await db
@@ -127,6 +174,7 @@ router.get("/wallet/verify/:reference", requireAuth, async (req, res): Promise<v
     .from(walletTransactionsTable)
     .where(eq(walletTransactionsTable.reference, ref));
   if (!existing || existing.userId !== user.id) { res.status(404).json({ error: "Payment reference not found" }); return; }
+  if (!gatewayConfigured(existing.currency)) { res.status(500).json({ error: "Payment provider not configured" }); return; }
 
   if (existing?.status === "success") {
     const [freshUser] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
@@ -140,7 +188,7 @@ router.get("/wallet/verify/:reference", requireAuth, async (req, res): Promise<v
     });
     const data = await response.json() as any;
     if (!data.status || !data.data) { res.status(400).json({ error: data.message ?? "Verification failed" }); return; }
-    if (data.data.amount !== existing.amount || data.data.currency !== "NGN") { res.status(400).json({ error: "Payment amount or currency does not match this top-up" }); return; }
+    if (data.data.amount !== existing.amount || data.data.currency !== existing.currency) { res.status(400).json({ error: "Payment amount or currency does not match this top-up" }); return; }
 
     const txStatus = data.data.status;
 

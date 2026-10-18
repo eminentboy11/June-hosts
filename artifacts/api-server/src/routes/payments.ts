@@ -4,9 +4,9 @@ import { logger } from "../lib/logger";
 import { db, paymentsTable, templatesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import {
-  PAYSTACK_SECRET,
   PAYSTACK_BASE,
   paystackHeaders,
+  gatewayConfigured,
   verifyPaystackSignature,
   getRawBody,
   headerValue,
@@ -59,7 +59,6 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
   const { templateId, callbackUrl } = req.body;
 
   if (!templateId) { res.status(400).json({ error: "templateId is required" }); return; }
-  if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured. Add PAYSTACK_SECRET_KEY." }); return; }
 
   const [template] = await db.select().from(templatesTable).where(eq(templatesTable.id, parseInt(templateId, 10)));
   if (!template) { res.status(404).json({ error: "Template not found" }); return; }
@@ -70,6 +69,10 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
   const useCurrency = resolveCurrency(template.currency);
   if (!SUPPORTED_CURRENCIES.has(useCurrency)) {
     res.status(400).json({ error: `Unsupported currency: ${useCurrency}` }); return;
+  }
+  if (!gatewayConfigured(useCurrency)) {
+    res.status(500).json({ error: useCurrency === "KES" ? "Kenyan gateway not configured (PAYSTACK_SECRET_KEY_KE)" : "Payment provider not configured. Add PAYSTACK_SECRET_KEY." });
+    return;
   }
 
   const reference = generateReference();
@@ -88,7 +91,7 @@ router.post("/payments/initiate", requireAuth, async (req, res): Promise<void> =
   try {
     const response = await fetch(`${PAYSTACK_BASE}/transaction/initialize`, {
       method: "POST",
-      headers: paystackHeaders(),
+      headers: paystackHeaders(useCurrency),
       body: JSON.stringify({
         email: user.email,
         amount: template.price,     // smallest unit: kobo (NGN) / cents (KES)
@@ -125,7 +128,7 @@ router.post("/payments/stk-push", requireAuth, async (req, res): Promise<void> =
   const { phone, templateId } = req.body;
 
   if (!phone || !templateId) { res.status(400).json({ error: "phone and templateId are required" }); return; }
-  if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured." }); return; }
+  if (!gatewayConfigured("KES")) { res.status(500).json({ error: "Kenyan gateway not configured (PAYSTACK_SECRET_KEY_KE)" }); return; }
 
   const [template] = await db.select().from(templatesTable).where(eq(templatesTable.id, parseInt(templateId, 10)));
   if (!template) { res.status(404).json({ error: "Template not found" }); return; }
@@ -152,7 +155,7 @@ router.post("/payments/stk-push", requireAuth, async (req, res): Promise<void> =
   try {
     const response = await fetch(`${PAYSTACK_BASE}/charge`, {
       method: "POST",
-      headers: paystackHeaders(),
+      headers: paystackHeaders("KES"),
       body: JSON.stringify({
         email: user.email,
         amount: template.price,
@@ -182,14 +185,14 @@ router.post("/payments/stk-push", requireAuth, async (req, res): Promise<void> =
 router.get("/payments/verify/:reference", requireAuth, async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.reference) ? req.params.reference[0] : req.params.reference;
   if (!raw) { res.status(400).json({ error: "Reference is required" }); return; }
-  if (!PAYSTACK_SECRET) { res.status(500).json({ error: "Payment provider not configured." }); return; }
 
   // Look up our record first so the Paystack amount can be matched against it.
   const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.reference, raw));
+  if (!gatewayConfigured(payment?.currency)) { res.status(500).json({ error: "Payment provider not configured." }); return; }
 
   try {
     const response = await fetch(`${PAYSTACK_BASE}/transaction/verify/${encodeURIComponent(raw)}`, {
-      headers: paystackHeaders(),
+      headers: paystackHeaders(payment?.currency),
     });
     const data = await response.json() as any;
     if (!data.status || !data.data) {

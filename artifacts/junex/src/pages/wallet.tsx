@@ -21,10 +21,13 @@ const API_BASE = import.meta.env.DEV ? "http://localhost:8080" : "";
 interface WalletData {
   balance: number;
   currency: string;
+  walletCurrency: string;
   transactions: Transaction[];
   coinTransactions: CoinTransaction[];
   ngnPerCoin: number;
+  kesPerCoin: number;
   minimumDepositAmount: number;
+  kesEnabled: boolean;
 }
 
 interface CoinTransaction {
@@ -102,7 +105,12 @@ export default function WalletPage() {
   const [reference, setReference] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const minimumDepositAmount = data?.minimumDepositAmount ?? 300;
+  const minimumDepositAmount = data?.minimumDepositAmount ?? 10000;
+
+  // Wallet currency is fixed by the country chosen at sign-up (server-side).
+  const cur = (data?.walletCurrency ?? "NGN").toUpperCase();
+  const sym = cur === "KES" ? "KES " : "₦";
+  const perCoin = cur === "KES" ? data?.kesPerCoin ?? 2 : data?.ngnPerCoin ?? 20;
 
   function minimumDepositText() {
     const kes = minimumDepositAmount / 100;
@@ -136,12 +144,12 @@ export default function WalletPage() {
 
   async function handleCardDeposit() {
     const amount = getAmount();
-    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is ₦${minimumDepositText()}`, variant: "destructive" }); return; }
+    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is ${sym}${minimumDepositText()}`, variant: "destructive" }); return; }
     setIsProcessing(true);
     try {
       const res = await fetch(`${API_BASE}/api/wallet/deposit/card`, {
         method: "POST", headers: authHeader(),
-        body: JSON.stringify({ amount, currency: "NGN" }),
+        body: JSON.stringify({ amount }),
       });
       const d = await res.json();
       if (!res.ok) { toast({ title: d.error ?? "Failed", variant: "destructive" }); return; }
@@ -179,7 +187,7 @@ export default function WalletPage() {
   async function handleStkPush() {
     if (!phone.trim()) { toast({ title: "Enter your M-Pesa number", variant: "destructive" }); return; }
     const amount = getAmount();
-    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is ₦${minimumDepositText()}`, variant: "destructive" }); return; }
+    if (amount < minimumDepositAmount) { toast({ title: `Minimum top-up is ${sym}${minimumDepositText()}`, variant: "destructive" }); return; }
     setIsProcessing(true);
     try {
       const res = await fetch(`${API_BASE}/api/wallet/deposit/mpesa`, {
@@ -277,7 +285,7 @@ export default function WalletPage() {
                     {fmtCoins(data?.balance ?? 0)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-2">
-                    ₦{data?.ngnPerCoin ?? 20} adds 1 coin. Hosting plans are paid in coins.
+                    {sym}{perCoin} adds 1 coin. Hosting plans are paid in coins.
                   </p>
                 </div>
                 <div className="h-16 w-16 rounded-2xl bg-primary/20 flex items-center justify-center">
@@ -298,7 +306,8 @@ export default function WalletPage() {
                     {fmt(
                       (data?.transactions ?? [])
                         .filter(t => t.type === "deposit" && t.status === "success")
-                        .reduce((s, t) => s + t.amount, 0)
+                        .reduce((s, t) => s + t.amount, 0),
+                      cur
                     )}
                   </p>
                 </CardContent>
@@ -446,12 +455,12 @@ export default function WalletPage() {
                         : "border-border/40 hover:border-primary/40"
                     }`}
                   >
-                    ₦ {a.toLocaleString()}
+                    {sym}{a.toLocaleString()}
                   </button>
                 ))}
               </div>
               <div className="space-y-1.5">
-                <Label>Custom amount (NGN)</Label>
+                <Label>Custom amount ({cur})</Label>
                 <Input
                   type="number"
                   placeholder="Enter amount..."
@@ -460,13 +469,13 @@ export default function WalletPage() {
                   min={minimumDepositAmount / 100}
                   className="text-base"
                 />
-                <p className="text-xs text-muted-foreground">Minimum deposit: ₦{minimumDepositText()}</p>
+                <p className="text-xs text-muted-foreground">Minimum deposit: {sym}{minimumDepositText()}</p>
               </div>
               <Button
                 className="w-full gap-2"
                 onClick={() => {
                   const amt = getAmount();
-                  if (amt < minimumDepositAmount) { toast({ title: `Minimum deposit is ₦${minimumDepositText()}`, variant: "destructive" }); return; }
+                  if (amt < minimumDepositAmount) { toast({ title: `Minimum deposit is ${sym}${minimumDepositText()}`, variant: "destructive" }); return; }
                   setStep("method");
                 }}
               >
@@ -483,21 +492,40 @@ export default function WalletPage() {
                 <span className="font-bold text-primary text-lg">{fmt(getAmount())}</span>
               </div>
 
-              <div className="grid grid-cols-1 gap-3">
-                {/* Naira: one Paystack checkout covering card, transfer, USSD */}
+              <div className={`grid gap-3 ${cur === "KES" && data?.kesEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+                {/* Card / naira checkout */}
                 <button
                   type="button"
                   onClick={() => setMethod("card")}
-                  className="flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all border-primary bg-primary/5"
+                  className={`flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                    method === "card" ? "border-primary bg-primary/5" : "border-border/40 hover:border-primary/40"
+                  }`}
                 >
-                  <div className="p-3 rounded-xl bg-primary/20">
-                    <CreditCard className="h-6 w-6 text-primary" />
+                  <div className={`p-3 rounded-xl ${method === "card" ? "bg-primary/20" : "bg-muted"}`}>
+                    <CreditCard className={`h-6 w-6 ${method === "card" ? "text-primary" : "text-muted-foreground"}`} />
                   </div>
-                  <p className="text-sm font-medium">Card, Bank Transfer or USSD</p>
+                  <p className="text-sm font-medium">{cur === "KES" ? "Card" : "Card, Bank Transfer or USSD"}</p>
                   <p className="text-xs text-muted-foreground text-center">
-                    All Nigerian payment methods in one checkout
+                    {cur === "KES" ? "Visa, Mastercard" : "All Nigerian payment methods in one checkout"}
                   </p>
                 </button>
+
+                {/* M-Pesa — Kenyan wallets only, when the KE gateway is set */}
+                {cur === "KES" && data?.kesEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("mpesa")}
+                  className={`flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                    method === "mpesa" ? "border-primary bg-primary/5" : "border-border/40 hover:border-primary/40"
+                  }`}
+                >
+                  <div className={`p-3 rounded-xl ${method === "mpesa" ? "bg-primary/20" : "bg-muted"}`}>
+                    <Smartphone className={`h-6 w-6 ${method === "mpesa" ? "text-primary" : "text-muted-foreground"}`} />
+                  </div>
+                  <p className="text-sm font-medium">M-Pesa</p>
+                  <p className="text-xs text-muted-foreground text-center">STK Push</p>
+                </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
